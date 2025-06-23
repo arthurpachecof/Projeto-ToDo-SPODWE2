@@ -19,7 +19,7 @@ const useAuth = () => {
       setToken(data.token);
     } catch (error) {
       console.error("Login error:", error);
-    throw error;
+      throw error;
     }
   };
 
@@ -69,64 +69,103 @@ const LoginForm = ({ onLogin }) => {
   );
 };
 
-
 const AddTodo = ({ addTodo, token }) => {
-  const handleKeyPress = async (event) => {
-    if (event.key === "Enter") {
-      const input = event.target;
-      const texto = input.value.trim();
+  const [texto, setTexto] = useState("");
+  const [tags, setTags] = useState("");
 
-      if (texto) {
-        const newTodo = await fetch("http://localhost:3000/todos", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "Authorization": `Bearer ${token}`,
-          },
-          body: JSON.stringify({
-            texto: texto,
-            feito: false,
-          }),
-        }).then((response) => {
-          if (!response.ok) {
-            throw new Error("Erro ao adicionar a tarefa");
-          }
-          return response.json();
-        });
+  const handleAdd = async (event) => {
+    event.preventDefault();
+    const textoTrim = texto.trim();
+    const tagsArray = tags
+      .split(",")
+      .map((t) => t.trim())
+      .filter((t) => t.length > 0);
 
-        addTodo(newTodo);
-        input.value = "";
-      }
+    if (textoTrim) {
+      const newTodo = await fetch("http://localhost:3000/todos", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          texto: textoTrim,
+          feito: false,
+          tags: tagsArray,
+        }),
+      }).then((response) => {
+        if (!response.ok) {
+          throw new Error("Erro ao adicionar a tarefa");
+        }
+        return response.json();
+      });
+
+      addTodo(newTodo);
+      setTexto("");
+      setTags("");
     }
   };
 
   return (
-    <input
-      type="text"
-      placeholder="Adicione aqui sua nova tarefa"
-      onKeyDown={handleKeyPress}
-    />
+    <form onSubmit={handleAdd} style={{ margin: "16px 0" }}>
+      <input
+        type="text"
+        placeholder="Adicione aqui sua nova tarefa"
+        value={texto}
+        onChange={(e) => setTexto(e.target.value)}
+        style={{ marginRight: 8 }}
+      />
+      <input
+        type="text"
+        placeholder="Tags (separadas por vírgula)"
+        value={tags}
+        onChange={(e) => setTags(e.target.value)}
+        style={{ marginRight: 8 }}
+      />
+      <button type="submit">Adicionar</button>
+    </form>
   );
 };
 
-const TodoFilter = ({ setFilter }) => {
+const TodoFilter = ({ setFilter, setTagFilter }) => {
+  const [tag, setTag] = useState("");
+
   const handleFilterClick = (event) => {
     event.preventDefault();
     const filter = event.target.id.replace("filter-", "");
     setFilter(filter);
+    setTagFilter(""); // Limpa filtro de tag ao trocar filtro padrão
+  };
+
+  const handleTagFilter = (e) => {
+    e.preventDefault();
+    if (tag.trim()) {
+      setFilter("tag");
+      setTagFilter(tag.trim());
+    }
   };
 
   return (
-    <div className="center-content">
+    <div className="center-content" style={{ marginBottom: 16 }}>
       <a href="#" id="filter-all" onClick={handleFilterClick}>
         Todos os itens
       </a>
-      <a href="#" id="filter-done" onClick={handleFilterClick}>
+      <a href="#" id="filter-done" onClick={handleFilterClick} style={{ marginLeft: 8 }}>
         Concluídos
       </a>
-      <a href="#" id="filter-pending" onClick={handleFilterClick}>
+      <a href="#" id="filter-pending" onClick={handleFilterClick} style={{ marginLeft: 8 }}>
         Pendentes
       </a>
+      <form onSubmit={handleTagFilter} style={{ display: "inline", marginLeft: 16 }}>
+        <input
+          type="text"
+          placeholder="Filtrar por tag"
+          value={tag}
+          onChange={(e) => setTag(e.target.value)}
+          style={{ marginRight: 4 }}
+        />
+        <button type="submit">Filtrar</button>
+      </form>
     </div>
   );
 };
@@ -139,11 +178,23 @@ const TodoItem = ({ todo, markTodoAsDone }) => {
   return (
     <>
       {todo.feito ? (
-        <li style={{ textDecoration: "line-through" }}>{todo.texto}</li>
+        <li style={{ textDecoration: "line-through" }}>
+          {todo.texto}
+          {todo.tags && todo.tags.length > 0 && (
+            <span style={{ marginLeft: 8, color: "#888", fontSize: "0.9em" }}>
+              [tags: {todo.tags.join(", ")}]
+            </span>
+          )}
+        </li>
       ) : (
         <li>
           {todo.texto}
-          <button onClick={handleClick}>Concluir</button>
+          {todo.tags && todo.tags.length > 0 && (
+            <span style={{ marginLeft: 8, color: "#888", fontSize: "0.9em" }}>
+              [tags: {todo.tags.join(", ")}]
+            </span>
+          )}
+          <button onClick={handleClick} style={{ marginLeft: 8 }}>Concluir</button>
         </li>
       )}
     </>
@@ -154,11 +205,13 @@ const TodoList = () => {
   const { token, login } = useAuth();
   const [todos, setTodos] = useState([]);
   const [filter, setFilter] = useState("all");
+  const [tagFilter, setTagFilter] = useState("");
 
   const filterBy = (todo) => {
     if (filter === "all") return true;
     if (filter === "done") return todo.feito;
     if (filter === "pending") return !todo.feito;
+    return true;
   };
 
   const applyFilter = (newFilter) => {
@@ -170,7 +223,11 @@ const TodoList = () => {
       if (!token) return;
 
       try {
-        const response = await fetch("http://localhost:3000/todos", {
+        let url = "http://localhost:3000/todos";
+        if (filter === "tag" && tagFilter) {
+          url = `http://localhost:3000/todos/por-tag?tag=${encodeURIComponent(tagFilter)}`;
+        }
+        const response = await fetch(url, {
           headers: {
             "Authorization": `Bearer ${token}`
           }
@@ -185,7 +242,7 @@ const TodoList = () => {
     };
 
     fetchTodos();
-  }, [token]);
+  }, [token, filter, tagFilter]);
 
   const addTodo = (newTodo) => {
     setTodos((prevTodos) => [...prevTodos, newTodo]);
@@ -222,7 +279,7 @@ const TodoList = () => {
         Versão Final da aplicação de lista de tarefas para a disciplina
         SPODWE2
       </div>
-      <TodoFilter setFilter={applyFilter} />
+      <TodoFilter setFilter={applyFilter} setTagFilter={setTagFilter} />
       <AddTodo addTodo={addTodo} token={token}/>
 
       {todos ? 
